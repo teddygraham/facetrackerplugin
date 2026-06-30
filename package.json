@@ -1,0 +1,13 @@
+{
+  "name": "facetrackplugin",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Retarget a facial performance onto a Figma rig — smoothing, calibration, and keyframe-reduction pipeline for the Figma Motion plugin.",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "tsc"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0"
+  }
+}
