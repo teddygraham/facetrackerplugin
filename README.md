@@ -3,7 +3,8 @@
 **Retarget a facial performance onto a Figma rig.**
 
 A Figma Motion plugin that analyzes a video of a face and drives a Figma
-component's keyframe tracks from it. This repo holds the **analysis pipeline**
+component's keyframe tracks from it. This repo holds the **loadable plugin**
+(`manifest.json` + `ui.html` + `code.ts`) and the **analysis pipeline** (`src/`)
 — the part that turns a noisy, gappy stream of per-frame measurements into a
 small set of clean, editable Motion keyframes — plus a worked critique of the
 design.
@@ -42,6 +43,9 @@ Entry point: [`analyzeToKeyframes`](src/pipeline.ts).
 
 | Module | Responsibility |
 |---|---|
+| `manifest.json` | Figma manifest — import this into the desktop app |
+| `ui.html` | Plugin panel: MediaPipe video detection, calibration, tuning sliders |
+| `code.ts` | Sandbox entry: runs the pipeline, resolves the target node, writes tracks |
 | `src/oneEuro.ts` | Adaptive One Euro low-pass smoothing |
 | `src/simplify.ts` | Ramer–Douglas–Peucker keyframe reduction (vertical-distance) |
 | `src/calibration.ts` | Neutral capture + deviation |
@@ -53,18 +57,33 @@ Entry point: [`analyzeToKeyframes`](src/pipeline.ts).
 
 ```bash
 npm install
-npm run typecheck          # tsc --noEmit, clean
-npm run build && node dist-cjs/smoke.js   # see note below
+npm run typecheck   # tsc --noEmit, clean
+npm run build       # esbuild code.ts → dist/code.js (the committed plugin bundle)
+npm run smoke       # synthetic-clip sanity check
 ```
 
 The smoke test (`src/smoke.ts`) runs a synthetic 5s/30fps clip with injected
 jitter and a detection dropout, and prints the keyframe reduction and the
-degrees-correct rotation peak. (For a quick run use a CommonJS build:
-`npx tsc --module CommonJS --moduleResolution Node --outDir dist-cjs && node dist-cjs/smoke.js`.)
+degrees-correct rotation peak.
 
 Expected output: ~150 raw frames reduced to ~20 keyframes per track, and a
 rotation peak in the ~10° range (degrees) rather than ~0.15 (radians) — proof
 the conversion is applied.
+
+## Load it in Figma
+
+1. Open the **Figma desktop app** (dev plugins don't load in the browser).
+2. **Menu → Plugins → Development → Import plugin from manifest…** and pick
+   `manifest.json`.
+3. Select a layer inside a frame with a Motion timeline, then run **Plugins →
+   Development → FaceTrack — Performance Retargeting**.
+4. Either **Generate demo animation** (synthetic performance, fully offline) or
+   pick a video → **Capture neutral** on a resting frame → **Detect from video**
+   (MediaPipe Face Landmarker) → tune the sliders → **Generate from video**.
+   Open the **Motion** panel to see / hand-edit the keyframes.
+
+`dist/code.js` is committed so the plugin imports with no build step; re-run
+`npm run build` after editing `code.ts` or the `src/` pipeline.
 
 ## Wiring into the plugin
 
@@ -93,6 +112,10 @@ importantly that `ROTATION` is in **degrees** and timeline positions are in
 
 ## Status
 
-v1 analysis pipeline implemented and typechecked. Host wiring (calling the
-Motion API from `code.ts`, node-id persistence, UI sliders) is the next step —
-see the roadmap.
+v1 complete: analysis pipeline + loadable plugin. The UI does real MediaPipe
+video face detection, per-person neutral capture, exaggeration / smoothing
+sliders, and Accurate/Balanced/Editable keyframe-detail presets. `code.ts`
+resolves a **locked target by node id** (re-verified at generate) and persists
+the per-node tuning config via `setPluginData`. Remaining: in-editor
+verification of `setTimelineDuration` ownership (see the roadmap and
+`docs/MOTION_API_FINDINGS.md`).

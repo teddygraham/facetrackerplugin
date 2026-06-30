@@ -10,7 +10,8 @@
     "noUnusedParameters": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
-    "outDir": "dist"
+    "noEmit": true,
+    "types": ["@figma/plugin-typings"]
   },
-  "include": ["src"]
+  "include": ["src", "code.ts"]
 }

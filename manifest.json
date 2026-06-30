@@ -1,0 +1,15 @@
+{
+  "name": "FaceTrack — Performance Retargeting",
+  "id": "facetrack-retarget-dev",
+  "api": "1.0.0",
+  "main": "dist/code.js",
+  "ui": "ui.html",
+  "editorType": ["figma"],
+  "networkAccess": {
+    "allowedDomains": [
+      "https://cdn.jsdelivr.net",
+      "https://storage.googleapis.com"
+    ],
+    "reasoning": "Face detection runs in the UI via MediaPipe Tasks Vision: the WASM runtime + ES module load from cdn.jsdelivr.net and the Face Landmarker model from storage.googleapis.com. No video or landmark data leaves the plugin."
+  }
+}
