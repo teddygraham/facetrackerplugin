@@ -299,7 +299,7 @@
       if (raw) {
         try {
           savedConfig = JSON.parse(raw);
-        } catch {
+        } catch (e) {
           savedConfig = null;
         }
       }

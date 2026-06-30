@@ -5,7 +5,7 @@
   "description": "Retarget a facial performance onto a Figma rig — smoothing, calibration, and keyframe-reduction pipeline for the Figma Motion plugin.",
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "build": "esbuild code.ts --bundle --outfile=dist/code.js --format=iife --target=es2019 --platform=browser --legal-comments=none",
+    "build": "esbuild code.ts --bundle --outfile=dist/code.js --format=iife --target=es2017 --platform=browser --legal-comments=none",
     "smoke": "esbuild src/smoke.ts --bundle --outfile=dist-cjs/smoke.cjs --format=cjs --platform=node && node dist-cjs/smoke.cjs"
   },
   "devDependencies": {
