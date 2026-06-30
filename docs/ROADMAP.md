@@ -17,16 +17,17 @@ one robustness fix and the verified API correctness.
       (`src/gapFill.ts`).
 - [x] **Rotation degrees fix** — radians→degrees on `ROTATION`
       (`src/applyTrack.ts`); verified against the Motion API.
-- [ ] **Host wiring**: call `node.applyManualKeyframeTrack(field, track)` in
-      `code.ts` using `buildManualKeyframeTrack` output; confirm timeline
-      ownership and `setTimelineDuration` target in-editor.
-- [ ] **Store node IDs at analyze time, re-resolve at generate** — capture root
-      + child node ids when analysis runs; re-resolve and verify existence at
-      generate. Add a "locked target" affordance so the user isn't relying on
-      the live selection.
-- [ ] **UI**: per-track exaggeration (gain) slider with live scrub; smoothing
-      strength slider (exposes One Euro `minCutoff`/`beta`); Accurate /
-      Balanced / Editable simplification presets; a neutral-capture button.
+- [x] **Host wiring**: `code.ts` calls `node.applyManualKeyframeTrack(field,
+      track)` using `buildManualKeyframeTrack` output. (Timeline ownership /
+      `setTimelineDuration` target still to confirm in-editor — Task 5.)
+- [x] **Store node IDs at analyze time, re-resolve at generate** — `code.ts`
+      persists the target node id on the document root, re-resolves and verifies
+      existence at generate, and exposes a "locked target" affordance so the user
+      isn't relying on the live selection.
+- [x] **UI**: per-track exaggeration (gain) sliders; smoothing strength slider
+      (exposes One Euro `minCutoff`/`beta`); Accurate / Balanced / Editable
+      simplification presets; a neutral-capture button. Plus real MediaPipe
+      Face Landmarker video detection feeding the pipeline.
 
 ## v1.5 — measurement quality
 

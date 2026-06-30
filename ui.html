@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      :root { color-scheme: light dark; }
+      body {
+        font: 12px/1.5 Inter, -apple-system, system-ui, sans-serif;
+        margin: 0;
+        padding: 16px;
+        color: var(--figma-color-text, #1e1e1e);
+        background: var(--figma-color-bg, #fff);
+      }
+      h1 { font-size: 13px; margin: 0 0 4px; }
+      h2 {
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        margin: 18px 0 8px;
+        color: var(--figma-color-text-secondary, #666);
+      }
+      p.sub { margin: 0 0 8px; color: var(--figma-color-text-secondary, #666); }
+      button {
+        width: 100%;
+        padding: 9px 12px;
+        border: none;
+        border-radius: 6px;
+        font-weight: 600;
+        cursor: pointer;
+        margin-bottom: 8px;
+      }
+      button:disabled { opacity: 0.45; cursor: not-allowed; }
+      .primary { background: var(--figma-color-bg-brand, #0d99ff); color: #fff; }
+      .secondary {
+        background: transparent;
+        color: var(--figma-color-text, #1e1e1e);
+        border: 1px solid var(--figma-color-border, #e6e6e6);
+      }
+      .row { display: flex; gap: 8px; }
+      .row > * { flex: 1; }
+      label.field { display: block; margin-bottom: 10px; }
+      label.field .cap {
+        display: flex;
+        justify-content: space-between;
+        margin-bottom: 2px;
+        color: var(--figma-color-text-secondary, #666);
+      }
+      input[type="range"] { width: 100%; }
+      input[type="file"] { width: 100%; margin-bottom: 8px; font-size: 11px; }
+      .target {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        padding: 8px 10px;
+        border-radius: 6px;
+        background: var(--figma-color-bg-secondary, #f5f5f5);
+        margin-bottom: 8px;
+      }
+      .target .name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .target button { width: auto; margin: 0; padding: 5px 10px; font-size: 11px; }
+      .presets { display: flex; gap: 6px; margin-bottom: 10px; }
+      .presets button { font-size: 11px; padding: 6px 4px; }
+      .presets button.active { background: var(--figma-color-bg-brand, #0d99ff); color: #fff; border-color: transparent; }
+      #status {
+        margin-top: 12px;
+        padding: 10px;
+        border-radius: 6px;
+        background: var(--figma-color-bg-secondary, #f5f5f5);
+        white-space: pre-wrap;
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 11px;
+        display: none;
+      }
+      #status.error { color: var(--figma-color-text-danger, #d33); }
+      video { display: none; }
+    </style>
+  </head>
+  <body>
+    <h1>FaceTrack — Performance Retargeting</h1>
+    <p class="sub">Retarget a facial performance onto a Figma rig.</p>
+
+    <h2>Target layer</h2>
+    <div class="target">
+      <span class="name" id="targetName">Live selection</span>
+      <button class="secondary" id="lock">Lock selection</button>
+    </div>
+
+    <h2>1 · Performance</h2>
+    <input type="file" id="video" accept="video/*" />
+    <button class="secondary" id="detect" disabled>Detect from video</button>
+    <button class="secondary" id="captureNeutral" disabled>Capture neutral (1s from current frame)</button>
+
+    <h2>2 · Tuning</h2>
+    <label class="field">
+      <span class="cap"><span>Mouth → translate Y</span><span id="mouthGainVal">60</span></span>
+      <input type="range" id="mouthGain" min="0" max="150" step="5" value="60" />
+    </label>
+    <label class="field">
+      <span class="cap"><span>Head roll → rotation</span><span id="rollGainVal">1.0×</span></span>
+      <input type="range" id="rollGain" min="0" max="3" step="0.1" value="1" />
+    </label>
+    <label class="field">
+      <span class="cap"><span>Smoothing strength</span><span id="smoothVal">50%</span></span>
+      <input type="range" id="smooth" min="0" max="100" step="5" value="50" />
+    </label>
+    <span class="cap" style="display:block;margin-bottom:4px;color:var(--figma-color-text-secondary,#666)">Keyframe detail</span>
+    <div class="presets" id="presets">
+      <button class="secondary" data-preset="accurate">Accurate</button>
+      <button class="secondary active" data-preset="balanced">Balanced</button>
+      <button class="secondary" data-preset="editable">Editable</button>
+    </div>
+
+    <h2>3 · Generate</h2>
+    <button class="primary" id="generate" disabled>Generate from video</button>
+    <button class="secondary" id="demo">Generate demo animation</button>
+    <button class="secondary" id="close">Close</button>
+
+    <div id="status"></div>
+    <video id="player" muted playsinline></video>
+
+    <script type="module">
+      // ---- DOM ------------------------------------------------------------
+      const $ = (id) => document.getElementById(id);
+      const statusEl = $("status");
+      function show(text, isError) {
+        statusEl.style.display = "block";
+        statusEl.className = isError ? "error" : "";
+        statusEl.textContent = text;
+      }
+
+      // ---- Tuning state ---------------------------------------------------
+      const PRESETS = { accurate: 0.005, balanced: 0.015, editable: 0.04 };
+      let preset = "balanced";
+      let neutralWindow = null; // { startT, endT } once the user captures one
+      let detectedSamples = null; // FrameSample[] once a video is analyzed
+
+      function smoothingFromStrength(strength01) {
+        // Higher strength → lower One Euro cutoff (smoother), gentler speed
+        // coefficient. Lower strength → high cutoff that lets motion through.
+        const minCutoff = 3.0 - (3.0 - 0.3) * strength01;
+        const beta = 0.02 - (0.02 - 0.004) * strength01;
+        return { minCutoff, beta };
+      }
+
+      function buildConfig() {
+        const mouthGain = Number($("mouthGain").value);
+        const rollGain = Number($("rollGain").value);
+        const strength = Number($("smooth").value) / 100;
+        const smoothing = smoothingFromStrength(strength);
+        const simplifyFraction = PRESETS[preset];
+        const config = {
+          mappings: [
+            { measurement: "mouthOpen", property: "TRANSLATION_Y", gain: mouthGain, smoothing, simplifyFraction },
+            { measurement: "headRoll", property: "ROTATION", gain: rollGain, isRotation: true, smoothing, simplifyFraction },
+          ],
+        };
+        if (neutralWindow) config.neutralWindow = neutralWindow;
+        return config;
+      }
+
+      // Restore controls from a config persisted on the node (Task 3).
+      function applyConfigToControls(cfg) {
+        if (!cfg || !Array.isArray(cfg.mappings)) return;
+        const mouth = cfg.mappings.find((m) => m.measurement === "mouthOpen");
+        const roll = cfg.mappings.find((m) => m.measurement === "headRoll");
+        if (mouth) $("mouthGain").value = mouth.gain;
+        if (roll) $("rollGain").value = roll.gain;
+        const sm = (mouth && mouth.smoothing) || (roll && roll.smoothing);
+        if (sm && typeof sm.minCutoff === "number") {
+          const s = Math.max(0, Math.min(1, (3.0 - sm.minCutoff) / (3.0 - 0.3)));
+          $("smooth").value = Math.round(s * 100);
+        }
+        const frac = mouth && mouth.simplifyFraction;
+        if (typeof frac === "number") {
+          preset = frac <= 0.008 ? "accurate" : frac <= 0.025 ? "balanced" : "editable";
+          syncPresetButtons();
+        }
+        if (cfg.neutralWindow) neutralWindow = cfg.neutralWindow;
+        syncLabels();
+      }
+
+      function syncLabels() {
+        $("mouthGainVal").textContent = $("mouthGain").value;
+        $("rollGainVal").textContent = Number($("rollGain").value).toFixed(1) + "×";
+        $("smoothVal").textContent = $("smooth").value + "%";
+      }
+      function syncPresetButtons() {
+        for (const b of $("presets").children) {
+          b.classList.toggle("active", b.dataset.preset === preset);
+        }
+      }
+
+      ["mouthGain", "rollGain", "smooth"].forEach((id) => ($(id).oninput = syncLabels));
+      for (const b of $("presets").children) {
+        b.onclick = () => { preset = b.dataset.preset; syncPresetButtons(); };
+      }
+      syncLabels();
+
+      // ---- Buttons → plugin ----------------------------------------------
+      $("generate").onclick = () => {
+        if (!detectedSamples) return;
+        parent.postMessage({ pluginMessage: { type: "apply-samples", samples: detectedSamples, config: buildConfig() } }, "*");
+      };
+      $("demo").onclick = () =>
+        parent.postMessage({ pluginMessage: { type: "generate-demo", config: buildConfig() } }, "*");
+      $("lock").onclick = () => {
+        const locked = $("lock").dataset.locked === "1";
+        parent.postMessage({ pluginMessage: { type: locked ? "unlock-target" : "lock-target" } }, "*");
+      };
+      $("close").onclick = () =>
+        parent.postMessage({ pluginMessage: { type: "close" } }, "*");
+
+      onmessage = (event) => {
+        const msg = event.data.pluginMessage;
+        if (!msg) return;
+        if (msg.type === "error") {
+          show(msg.message, true);
+        } else if (msg.type === "done") {
+          const lines = Object.keys(msg.reduction).map(
+            (k) => `${k}: ${msg.reduction[k].before} → ${msg.reduction[k].after} keyframes`
+          );
+          show(`Applied to "${msg.node}".\n` + lines.join("\n"), false);
+        } else if (msg.type === "target-state") {
+          const locked = !!msg.lockedName;
+          $("targetName").textContent = locked ? "🔒 " + msg.lockedName : "Live selection";
+          $("lock").textContent = locked ? "Unlock" : "Lock selection";
+          $("lock").dataset.locked = locked ? "1" : "0";
+          if (msg.savedConfig) applyConfigToControls(msg.savedConfig);
+        }
+      };
+
+      // ---- Video + neutral capture ---------------------------------------
+      const player = $("player");
+      $("video").onchange = (e) => {
+        const file = e.target.files && e.target.files[0];
+        if (!file) return;
+        player.src = URL.createObjectURL(file);
+        player.onloadedmetadata = () => {
+          $("detect").disabled = false;
+          $("captureNeutral").disabled = false;
+          show(`Loaded "${file.name}" (${player.duration.toFixed(1)}s). Capture a neutral on a resting frame, then Detect.`, false);
+        };
+      };
+
+      $("captureNeutral").onclick = () => {
+        const start = player.currentTime || 0;
+        const end = Math.min(player.duration || start + 1, start + 1.0);
+        neutralWindow = { startT: start, endT: end };
+        show(`Neutral window set: ${start.toFixed(2)}s – ${end.toFixed(2)}s. The rest pose for that span reads as 0.`, false);
+      };
+
+      // ---- MediaPipe Face Landmarker -------------------------------------
+      // Loaded lazily on first Detect so the model isn't fetched unless used.
+      const VISION = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.20";
+      const MODEL =
+        "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task";
+      let landmarker = null;
+
+      async function loadLandmarker() {
+        if (landmarker) return landmarker;
+        const vision = await import(`${VISION}/vision_bundle.mjs`);
+        const fileset = await vision.FilesetResolver.forVisionTasks(`${VISION}/wasm`);
+        landmarker = await vision.FaceLandmarker.createFromOptions(fileset, {
+          baseOptions: { modelAssetPath: MODEL },
+          runningMode: "VIDEO",
+          numFaces: 1,
+          outputFaceBlendshapes: true,
+        });
+        return landmarker;
+      }
+
+      // Outer-eye-corner landmark indices (MediaPipe 468-point mesh).
+      const L_EYE = 33, R_EYE = 263, UPPER_LIP = 13, LOWER_LIP = 14;
+
+      function measure(result, w, h) {
+        const lm = result.faceLandmarks && result.faceLandmarks[0];
+        if (!lm) return null;
+
+        // Head roll: angle of the inter-eye line, in radians (matches what the
+        // pipeline expects; applyTrack converts to degrees for ROTATION).
+        const dx = (lm[R_EYE].x - lm[L_EYE].x) * w;
+        const dy = (lm[R_EYE].y - lm[L_EYE].y) * h;
+        const headRoll = Math.atan2(dy, dx);
+
+        // Mouth openness: prefer the jawOpen blendshape (already normalized
+        // 0..1); fall back to lip gap / interocular distance.
+        let mouthOpen;
+        const shapes = result.faceBlendshapes && result.faceBlendshapes[0];
+        const jaw = shapes && shapes.categories.find((c) => c.categoryName === "jawOpen");
+        if (jaw) {
+          mouthOpen = jaw.score;
+        } else {
+          const gap = Math.abs((lm[LOWER_LIP].y - lm[UPPER_LIP].y) * h);
+          const interocular = Math.hypot(dx, dy) || 1;
+          mouthOpen = gap / interocular;
+        }
+        return { mouthOpen, headRoll };
+      }
+
+      $("detect").onclick = async () => {
+        $("detect").disabled = true;
+        $("generate").disabled = true;
+        try {
+          show("Loading face model…", false);
+          const fl = await loadLandmarker();
+          show("Detecting… (playing through the clip)", false);
+
+          const w = player.videoWidth, h = player.videoHeight;
+          const samples = [];
+          let faces = 0, lastTs = -1;
+
+          await new Promise((resolve, reject) => {
+            const onFrame = (_now, meta) => {
+              const t = meta.mediaTime;
+              const tsMs = Math.max(lastTs + 1, Math.round(t * 1000));
+              lastTs = tsMs;
+              let values = null;
+              try {
+                const result = fl.detectForVideo(player, tsMs);
+                values = measure(result, w, h);
+              } catch (_) {
+                values = null;
+              }
+              if (values) faces++;
+              samples.push({ t, values });
+              if (samples.length % 15 === 0) show(`Detecting… ${samples.length} frames (${faces} with a face)`, false);
+              if (!player.ended) player.requestVideoFrameCallback(onFrame);
+            };
+            player.onended = () => resolve();
+            player.onerror = () => reject(new Error("Video playback failed."));
+            player.requestVideoFrameCallback(onFrame);
+            player.play().catch(reject);
+          });
+
+          detectedSamples = samples;
+          $("generate").disabled = samples.length === 0;
+          show(`Detected ${samples.length} frames, ${faces} with a face. Tune above, then Generate.`, false);
+        } catch (err) {
+          show("Face detection failed: " + (err && err.message ? err.message : err) +
+            "\nThe synthetic demo still works.", true);
+        } finally {
+          $("detect").disabled = false;
+        }
+      };
+
+      // Ask the sandbox for the current locked-target state on open.
+      parent.postMessage({ pluginMessage: { type: "request-state" } }, "*");
+    </script>
+  </body>
+</html>
